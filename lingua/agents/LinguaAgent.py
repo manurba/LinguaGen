@@ -3,11 +3,13 @@ import asyncio
 import os
 import time
 import logging
+import uuid
 from dotenv import load_dotenv
 
-from lingua.utils.dataclasses import (
+from lingua.utils.dataclass import (
     StatusTracker,
-    APIRequest
+    APIRequest,
+    get_audio
 )
 from lingua.utils.functions import (
     api_endpoint_from_url,
@@ -30,6 +32,7 @@ class LinguaGen:
 
     async def request_handler(
         self,
+        request_id,
         request_json,
         request_url,
         max_requests_per_minute,
@@ -72,7 +75,7 @@ class LinguaGen:
                     elif queue_not_finished:
                         try:
                             next_request = APIRequest(
-                                task_id=next(task_id_generator),
+                                task_id=request_id,
                                 request_json=request_json,
                                 token_consumption=num_tokens_consumed_from_request(
                                     request_json, api_endpoint, token_encoding_name
@@ -88,7 +91,7 @@ class LinguaGen:
                         except StopIteration:
                             # if file runs out, set flag to stop reading it
                             logging.debug("Read file exhausted")
-                            file_not_finished = False
+                            queue_not_finished = False
                 # update available capacity
                 current_time = time.time()
                 seconds_since_update = current_time - last_update_time
@@ -117,15 +120,15 @@ class LinguaGen:
                         next_request.attempts_left -= 1
 
                         # call API
-                        asyncio.create_task(
-                            next_request.call_api(
+                        await next_request.call_api(
                                 session=session,
                                 request_url=request_url,
+                                api_endpoint=api_endpoint,
                                 request_header=self.request_header,
                                 retry_queue=queue_of_requests_to_retry,
                                 status_tracker=status_tracker,
                             )
-                        )
+                        
                         next_request = None  # reset next_request to empty
 
                 # if all tasks are finished, break
@@ -153,29 +156,90 @@ class LinguaGen:
                         f"Pausing to cool down until {time.ctime(status_tracker.time_of_last_rate_limit_error + seconds_to_pause_after_rate_limit_error)}"
                     )
 
+        # after finishing, log final status
+        logging.info(
+            f"""Parallel processing complete."""
+        )
+        if status_tracker.num_tasks_failed > 0:
+            logging.warning(
+                f"{status_tracker.num_tasks_failed} / {status_tracker.num_tasks_started} requests failed.."
+            )
+        if status_tracker.num_rate_limit_errors > 0:
+            logging.warning(
+                f"{status_tracker.num_rate_limit_errors} rate limit errors received. Consider running at a lower rate."
+            )
+
+        return APIRequest.results_dict
+
+
+
 async def main():
     lingua = LinguaGen()
+
+
+    response = await get_audio(
+        request_url="https://api.openai.com/v1/audio/transcriptions",
+        request_header={"Authorization": f"Bearer {os.getenv('API_KEY')}"},
+        file_path="data/sound.mp3",
+        model="whisper-1"
+    )
+    
+    request_text = {
+        "parent_message_id": uuid.uuid4(),
+        "messages": [
+            {
+                "id": uuid.uuid4(),
+                "author": {"role": "user"},
+                "content": {
+                    "content_type": "text",
+                    "parts": ["hi how are you?"]
+                }
+            }
+        ]
+    }
+
+    request_audio = {
+        "parent_message_id": uuid.uuid4(),
+        "messages": [
+            {
+                "id": uuid.uuid4(),
+                "author": {"role": "user"},
+                "content": {
+                    "content_type": "text",
+                    "parts": [response["text"]]
+                }
+            }
+        ]
+    }
+
+    # if request["parent_message_id"] in database:
+    #   -> Append to conversation and return it
+    # else:
+    messages = [
+        {
+            "role": "system",
+            "content": "You are a helpful assistant."
+        },
+        {
+            "role": "user",
+            "content": request_audio["messages"][0]["content"]["parts"][0]
+        }
+    ]
+
     response = await lingua.request_handler(
+        request_id=request_audio["parent_message_id"],
         request_json={
             "model": "gpt-3.5-turbo-0125",
-            "messages": [
-                {
-                    "role": "system",
-                    "content": "You are a helpful assistant."
-                },
-                {
-                    "role": "user",
-                    "content": "Hello!"
-                }
-            ],
+            "messages": messages,
             "max_tokens": 100,
         },
         request_url="https://api.openai.com/v1/chat/completions",
-        max_requests_per_minute=200,
-        max_tokens_per_minute=120_000,
+        max_requests_per_minute=415*.5,
+        max_tokens_per_minute=60_000*.5,
         token_encoding_name="cl100k_base",
         max_attempts=5,
     )
+    
     print(response)
 
 if __name__ == '__main__':

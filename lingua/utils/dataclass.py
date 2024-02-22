@@ -6,6 +6,25 @@ from dataclasses import (
     dataclass,
     field,
 )
+from aiohttp import FormData
+
+async def get_audio(
+        request_url: str,
+        request_header: dict,
+        file_path: str,
+        model: str,
+    ):
+
+    form = FormData()
+    form.add_field('model', model)
+    # Open the file in binary mode and add it to the form
+    form.add_field('file', open(file_path, 'rb'))
+
+    async with aiohttp.ClientSession() as session:
+        # Note that headers are not manually set here; aiohttp will set the appropriate multipart/form-data headers.
+        async with session.post(url=request_url, headers=request_header, data=form) as response:
+            response_data = await response.json()
+            return response_data
 
 
 @dataclass
@@ -33,10 +52,14 @@ class APIRequest:
     metadata: dict
     result: list = field(default_factory=list)
 
+    results_dict = {}
+    lock = asyncio.Lock()
+
     async def call_api(
         self,
         session: aiohttp.ClientSession,
         request_url: str,
+        api_endpoint: str,
         request_header: dict,
         retry_queue: asyncio.Queue,
         status_tracker: StatusTracker,
@@ -84,6 +107,13 @@ class APIRequest:
 
                 status_tracker.num_tasks_in_progress -= 1
                 status_tracker.num_tasks_failed += 1
+
+                async with self.lock:
+                    self.results_dict[self.task_id] = {
+                        "request": self.request_json,
+                        "response": response,
+                        "errors_flag": True,
+                    }
         else:
             data = (
                 [self.request_json, response, self.metadata]
@@ -92,5 +122,18 @@ class APIRequest:
             )
             status_tracker.num_tasks_in_progress -= 1
             status_tracker.num_tasks_succeeded += 1
+
+            if api_endpoint.endswith("completions"):
+                async with self.lock:
+                    self.results_dict[self.task_id] = {
+                        "request": self.request_json,
+                        "response": response.get("choices", [{}])[0]
+                        .get("message", {})
+                        .get("content"),
+                        "errors_flag": False,
+                    }
+            else:
+                raise NotImplementedError(
+                    f'API endpoint "{self.api_endpoint}" not implemented in this script'
+                )
             logging.debug(f"Request {self.task_id} done")
-            return data
