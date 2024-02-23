@@ -6,10 +6,15 @@ import logging
 import uuid
 from dotenv import load_dotenv
 
+import io
+from pydub import AudioSegment
+from pydub.playback import play
+
 from lingua.utils.dataclass import (
     StatusTracker,
     APIRequest,
-    get_audio
+    text_from_audio,
+    text_to_audio
 )
 from lingua.utils.functions import (
     api_endpoint_from_url,
@@ -177,10 +182,10 @@ async def main():
     lingua = LinguaGen()
 
 
-    response = await get_audio(
+    response = await text_from_audio(
         request_url="https://api.openai.com/v1/audio/transcriptions",
         request_header={"Authorization": f"Bearer {os.getenv('API_KEY')}"},
-        file_path="data/sound.mp3",
+        file_path="data/Recording.mp3",
         model="whisper-1"
     )
     
@@ -198,8 +203,9 @@ async def main():
         ]
     }
 
+    id_request = str(uuid.uuid4())
     request_audio = {
-        "parent_message_id": uuid.uuid4(),
+        "parent_message_id": id_request,
         "messages": [
             {
                 "id": uuid.uuid4(),
@@ -240,7 +246,23 @@ async def main():
         max_attempts=5,
     )
     
-    print(response)
+    response = await text_to_audio(
+        request_url="https://api.openai.com/v1/audio/speech",
+        request_header={
+            "Authorization": f"Bearer {os.getenv('API_KEY')}",
+            "Content-Type": "application/json"
+        },
+        voice="alloy",
+        input=response[id_request]["response"],
+        model="tts-1",
+    )
+
+    # Convert the byte string response to an audio segment
+    audio = AudioSegment.from_file(io.BytesIO(response), format="mp3")
+
+    # Play the audio
+    play(audio)
+
 
 if __name__ == '__main__':
     asyncio.run(main())

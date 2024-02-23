@@ -8,17 +8,16 @@ from dataclasses import (
 )
 from aiohttp import FormData
 
-async def get_audio(
+async def text_from_audio(
         request_url: str,
         request_header: dict,
         file_path: str,
         model: str,
     ):
-
     form = FormData()
     form.add_field('model', model)
     # Open the file in binary mode and add it to the form
-    form.add_field('file', open(file_path, 'rb'))
+    form.add_field('file', file_path, filename="audio.mp3")
 
     async with aiohttp.ClientSession() as session:
         # Note that headers are not manually set here; aiohttp will set the appropriate multipart/form-data headers.
@@ -26,6 +25,24 @@ async def get_audio(
             response_data = await response.json()
             return response_data
 
+async def text_to_audio(
+        request_url: str,
+        request_header: dict,
+        voice: str,
+        input: str,
+        model: str,
+    ):
+    
+    data = {
+        "model": model,
+        "input": input,
+        "voice": voice
+    }
+    async with aiohttp.ClientSession() as session:
+        # Note that headers are not manually set here; aiohttp will set the appropriate multipart/form-data headers.
+        async with session.post(url=request_url, headers=request_header, json=data) as response:
+            response_data = await response.read()
+            return response_data
 
 @dataclass
 class StatusTracker:
