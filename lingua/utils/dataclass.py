@@ -1,48 +1,48 @@
-import aiohttp
 import asyncio
 import logging
 import time
-from dataclasses import (
-    dataclass,
-    field,
-)
+from dataclasses import dataclass, field
+
+import aiohttp
 from aiohttp import FormData
 
+
 async def text_from_audio(
-        request_url: str,
-        request_header: dict,
-        file_path: str,
-        model: str,
-    ):
+    request_url: str,
+    request_header: dict,
+    file_path: str,
+    model: str,
+):
     form = FormData()
-    form.add_field('model', model)
+    form.add_field("model", model)
     # Open the file in binary mode and add it to the form
-    form.add_field('file', file_path, filename="audio.mp3")
+    form.add_field("file", file_path, filename="audio.mp3")
 
     async with aiohttp.ClientSession() as session:
         # Note that headers are not manually set here; aiohttp will set the appropriate multipart/form-data headers.
-        async with session.post(url=request_url, headers=request_header, data=form) as response:
+        async with session.post(
+            url=request_url, headers=request_header, data=form
+        ) as response:
             response_data = await response.json()
             return response_data
 
+
 async def text_to_audio(
-        request_url: str,
-        request_header: dict,
-        voice: str,
-        input: str,
-        model: str,
-    ):
-    
-    data = {
-        "model": model,
-        "input": input,
-        "voice": voice
-    }
+    request_url: str,
+    request_header: dict,
+    voice: str,
+    input: str,
+    model: str,
+):
+    data = {"model": model, "input": input, "voice": voice}
     async with aiohttp.ClientSession() as session:
         # Note that headers are not manually set here; aiohttp will set the appropriate multipart/form-data headers.
-        async with session.post(url=request_url, headers=request_header, json=data) as response:
+        async with session.post(
+            url=request_url, headers=request_header, json=data
+        ) as response:
             response_data = await response.read()
             return response_data
+
 
 @dataclass
 class StatusTracker:
@@ -55,7 +55,9 @@ class StatusTracker:
     num_rate_limit_errors: int = 0
     num_api_errors: int = 0  # excluding rate limit errors, counted above
     num_other_errors: int = 0
-    time_of_last_rate_limit_error: int = 0  # used to cool off after hitting rate limits
+    time_of_last_rate_limit_error: int = (
+        0  # used to cool off after hitting rate limits
+    )
 
 
 @dataclass
@@ -105,7 +107,9 @@ class APIRequest:
         except (
             Exception
         ) as e:  # catching naked exceptions is bad practice, but in this case we'll log & save them
-            logging.warning(f"Request {self.task_id} failed with Exception {e}")
+            logging.warning(
+                f"Request {self.task_id} failed with Exception {e}"
+            )
             status_tracker.num_other_errors += 1
             error = e
         if error:
@@ -116,11 +120,15 @@ class APIRequest:
                 logging.error(
                     f"Request {self.request_json} failed after all attempts. Saving errors: {self.result}"
                 )
-                data = (
-                    [self.request_json, [str(e) for e in self.result], self.metadata]
-                    if self.metadata
-                    else [self.request_json, [str(e) for e in self.result]]
-                )
+                # data = (
+                #     [
+                #         self.request_json,
+                #         [str(e) for e in self.result],
+                #         self.metadata,
+                #     ]
+                #     if self.metadata
+                #     else [self.request_json, [str(e) for e in self.result]]
+                # )
 
                 status_tracker.num_tasks_in_progress -= 1
                 status_tracker.num_tasks_failed += 1
@@ -132,11 +140,11 @@ class APIRequest:
                         "errors_flag": True,
                     }
         else:
-            data = (
-                [self.request_json, response, self.metadata]
-                if self.metadata
-                else [self.request_json, response]
-            )
+            # data = (
+            #     [self.request_json, response, self.metadata]
+            #     if self.metadata
+            #     else [self.request_json, response]
+            # )
             status_tracker.num_tasks_in_progress -= 1
             status_tracker.num_tasks_succeeded += 1
 

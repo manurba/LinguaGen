@@ -1,15 +1,14 @@
-from fastapi import FastAPI, File, UploadFile
-
-from lingua.utils.dataclass import (
-    text_from_audio,
-    text_to_audio
-)
-from lingua.agents.LinguaAgent import LinguaGen
+import io
 import os
 import uuid
-import io
+
+from fastapi import FastAPI, File, UploadFile
+
+from lingua.agents.LinguaAgent import LinguaGen
+from lingua.utils.dataclass import text_from_audio, text_to_audio
 
 app = FastAPI()
+
 
 @app.post("/get_response")
 async def compute_reply(file: UploadFile = File(...)):
@@ -19,7 +18,7 @@ async def compute_reply(file: UploadFile = File(...)):
         request_url="https://api.openai.com/v1/audio/transcriptions",
         request_header={"Authorization": f"Bearer {os.getenv('API_KEY')}"},
         file_path=audio_file,
-        model="whisper-1"
+        model="whisper-1",
     )
 
     id_request = str(uuid.uuid4())
@@ -32,21 +31,18 @@ async def compute_reply(file: UploadFile = File(...)):
                 "author": {"role": "user"},
                 "content": {
                     "content_type": "text",
-                    "parts": [response["text"]]
-                }
+                    "parts": [response["text"]],
+                },
             }
-        ]
+        ],
     }
 
     messages = [
-        {
-            "role": "system",
-            "content": "You are a helpful assistant."
-        },
+        {"role": "system", "content": "You are a helpful assistant."},
         {
             "role": "user",
-            "content": request_audio["messages"][0]["content"]["parts"][0]
-        }
+            "content": request_audio["messages"][0]["content"]["parts"][0],
+        },
     ]
 
     lingua = LinguaGen()
@@ -59,17 +55,17 @@ async def compute_reply(file: UploadFile = File(...)):
             "max_tokens": 100,
         },
         request_url="https://api.openai.com/v1/chat/completions",
-        max_requests_per_minute=415*.5,
-        max_tokens_per_minute=60_000*.5,
+        max_requests_per_minute=415 * 0.5,
+        max_tokens_per_minute=60_000 * 0.5,
         token_encoding_name="cl100k_base",
         max_attempts=5,
     )
-    
+
     response = await text_to_audio(
         request_url="https://api.openai.com/v1/audio/speech",
         request_header={
             "Authorization": f"Bearer {os.getenv('API_KEY')}",
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
         },
         voice="alloy",
         input=response[id_request]["response"],
