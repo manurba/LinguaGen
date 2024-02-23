@@ -1,0 +1,29 @@
+[build-system]
+build-backend = "poetry.core.masonry.api"
+requires = ["poetry-core>=1.0.0"]
+
+[tool.isort]
+profile = "black"
+
+[tool.poetry]
+authors = ["Manuel Urbano"]
+description = "LinguaGen Tool"
+name = "LinguaGen"
+version = "0.1.0"
+
+[tool.poetry.dependencies]
+aiohttp = "^3.9.3"
+fastapi = "^0.109.2"
+pydub = "^0.25.1"
+python = ">=3.10,<3.12"
+python-dotenv = "^1.0.1"
+python-multipart = "^0.0.9"
+tiktoken = "^0.6.0"
+uvicorn = "^0.27.1"
+
+[tool.poetry.group.build.dependencies]
+pyinstaller = "^5.13.0"
+
+[tool.poetry.group.test.dependencies]
+pre-commit = "^3.3.3"
+pytest = "^7.4.0"
