@@ -10,12 +10,7 @@ from dotenv import load_dotenv
 from pydub import AudioSegment
 from pydub.playback import play
 
-from lingua.utils.dataclass import (
-    APIRequest,
-    StatusTracker,
-    text_from_audio,
-    text_to_audio,
-)
+from lingua.utils.dataclass import APIRequest, StatusTracker, audio2text, text2audio
 from lingua.utils.functions import (  # task_id_generator_function,
     api_endpoint_from_url,
     num_tokens_consumed_from_request,
@@ -182,7 +177,7 @@ class LinguaGen:
 async def main():
     lingua = LinguaGen()
 
-    response = await text_from_audio(
+    response = await audio2text(
         request_url="https://api.openai.com/v1/audio/transcriptions",
         request_header={"Authorization": f"Bearer {os.getenv('API_KEY')}"},
         file_path="data/Recording.mp3",
@@ -243,7 +238,7 @@ async def main():
         max_attempts=5,
     )
 
-    response = await text_to_audio(
+    response = await text2audio(
         request_url="https://api.openai.com/v1/audio/speech",
         request_header={
             "Authorization": f"Bearer {os.getenv('API_KEY')}",

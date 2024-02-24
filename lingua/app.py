@@ -2,29 +2,34 @@ import io
 import os
 import uuid
 
-from fastapi import FastAPI, File, UploadFile
+from fastapi import FastAPI, File, Form, UploadFile
 
 from lingua.agents.LinguaAgent import LinguaGen
-from lingua.utils.dataclass import text_from_audio, text_to_audio
+from lingua.utils.dataclass import audio2text, text2audio
 
 app = FastAPI()
 
 
+@app.get("/new_conversation")
+async def new_conversation():
+    return {"conversation_id": str(uuid.uuid4())}
+
+
 @app.post("/get_response")
-async def compute_reply(file: UploadFile = File(...)):
+async def compute_reply(
+    conversation_id: str = Form(...), file: UploadFile = File(...)
+):
     audio_file = io.BytesIO(await file.read())
 
-    response = await text_from_audio(
+    response = await audio2text(
         request_url="https://api.openai.com/v1/audio/transcriptions",
         request_header={"Authorization": f"Bearer {os.getenv('API_KEY')}"},
         file_path=audio_file,
         model="whisper-1",
     )
 
-    id_request = str(uuid.uuid4())
-
     request_audio = {
-        "parent_message_id": id_request,
+        "parent_message_id": conversation_id,
         "messages": [
             {
                 "id": uuid.uuid4(),
@@ -61,15 +66,21 @@ async def compute_reply(file: UploadFile = File(...)):
         max_attempts=5,
     )
 
-    response = await text_to_audio(
+    response_text = response[conversation_id]["response"]
+
+    response = await text2audio(
         request_url="https://api.openai.com/v1/audio/speech",
         request_header={
             "Authorization": f"Bearer {os.getenv('API_KEY')}",
             "Content-Type": "application/json",
         },
         voice="alloy",
-        input=response[id_request]["response"],
+        input=response_text,
         model="tts-1",
     )
 
-    return {"filename": file.filename}
+    file_name = f"data/{conversation_id}_output.mp3"
+    with open(file_name, "wb") as audio_file:
+        audio_file.write(response)
+
+    return {"file": file_name, "response_text": response_text}

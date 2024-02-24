@@ -7,7 +7,7 @@ import aiohttp
 from aiohttp import FormData
 
 
-async def text_from_audio(
+async def audio2text(
     request_url: str,
     request_header: dict,
     file_path: str,
@@ -27,7 +27,7 @@ async def text_from_audio(
             return response_data
 
 
-async def text_to_audio(
+async def text2audio(
     request_url: str,
     request_header: dict,
     voice: str,
