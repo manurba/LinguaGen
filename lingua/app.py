@@ -1,6 +1,7 @@
 import io
 import os
 import uuid
+from typing import Optional
 
 import aiofiles
 import motor.motor_asyncio
@@ -41,7 +42,6 @@ async def update_or_create_conversation(conversation_id, new_message):
     conversation = await conversations_collection.find_one(
         {"_id": conversation_id}
     )
-    print(conversation)
 
     if conversation:
         # If it exists, append the new message
@@ -53,9 +53,27 @@ async def update_or_create_conversation(conversation_id, new_message):
 
 @app.post("/get_response")
 async def compute_reply(
-    conversation_id: str = Form(...), file: UploadFile = File(...)
+    conversation_id: str = Form(...),
+    file: UploadFile = File(None),
+    text_input: Optional[str] = Form(None),
 ):
-    audio_file = io.BytesIO(await file.read())
+    if text_input:
+        text_response = text_input
+    else:
+        if file is not None:
+            audio_file = io.BytesIO(await file.read())
+            response = await audio2text(
+                request_url="https://api.openai.com/v1/audio/transcriptions",
+                request_header={
+                    "Authorization": f"Bearer {os.getenv('API_KEY')}"
+                },
+                file_path=audio_file,
+                model="whisper-1",
+            )
+            # Extract the text part from the response
+            text_response = response["text"]
+        else:
+            return {"error": "No input provided"}
 
     get_conversation = await conversations_collection.find_one(
         {"_id": conversation_id}
@@ -63,22 +81,10 @@ async def compute_reply(
 
     conversation = get_conversation["messages"]
 
-    response = await audio2text(
-        request_url="https://api.openai.com/v1/audio/transcriptions",
-        request_header={"Authorization": f"Bearer {os.getenv('API_KEY')}"},
-        file_path=audio_file,
-        model="whisper-1",
-    )
-
-    # Extract the text part from the response
-    text_response = response["text"]
-
     conversation.append({"role": "user", "content": text_response})
 
     id_request_audio = uuid.uuid4().hex
-
     lingua = LinguaGen()
-
     response = await lingua.request_handler(
         request_id=id_request_audio,
         request_json={
