@@ -15,8 +15,7 @@ import GoogleLoginButton from '../components/GoogleLoginButton.vue';
 display: flex;
 justify-content: center;
 align-items: center;
-height: 100vh; /* Full viewport height */
-background-color: #f5f5f5; /* Light gray background */
+height: 10vh; /* Full viewport height */
 }
 
 .login-box {

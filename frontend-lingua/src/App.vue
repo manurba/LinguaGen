@@ -7,19 +7,15 @@ import { authState } from './authState';
 <template>
   <div class="container">
     <div class="content">
-      <a href="https://vitejs.dev" target="_blank">
-        <img src="/vite.svg" class="logo" alt="Vite logo" />
-      </a>
-      <a href="https://vuejs.org/" target="_blank">
-        <img src="./assets/vue.svg" class="logo vue" alt="Vue logo" />
+      <!-- Update the href if needed to point to your website or remove the <a> tag if not required -->
+      <a href="http://localhost:3000" target="_blank">
+        <!-- Update the src attribute to the path of your new logo file -->
+        <img src="/LinguaGen_Logo-removebg.png" class="logo" alt="LinguaGen logo" />
       </a>
     </div>
-    <!-- <div class="login-button" v-if="!authState.isAuthenticated">
-      <GoogleLoginButton />
-    </div> -->
     <div id="app">
-    <router-view></router-view> <!-- This line is crucial -->
-  </div>
+      <router-view></router-view> <!-- This line is crucial -->
+    </div>
   </div>
 </template>
 

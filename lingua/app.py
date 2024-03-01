@@ -7,6 +7,8 @@ import aiofiles
 import motor.motor_asyncio
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, Form, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from lingua.agents.LinguaAgent import LinguaGen
 from lingua.utils.dataclass import audio2text, text2audio
@@ -20,6 +22,17 @@ conversations_collection = db.get_collection(os.getenv("MONGO_DB_COLLECTION"))
 
 # Initialize FastAPI app
 app = FastAPI()
+
+# Configure CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],  # Allows all origins
+    allow_credentials=True,
+    allow_methods=["*"],  # Allows all methods
+    allow_headers=["*"],  # Allows all headers
+)
+
+app.mount("/data", StaticFiles(directory="data/"), name="data")
 
 
 @app.get("/new_conversation")
@@ -83,10 +96,11 @@ async def compute_reply(
 
     conversation.append({"role": "user", "content": text_response})
 
-    id_request_audio = uuid.uuid4().hex
+    # id_request_audio = uuid.uuid4().hex
     lingua = LinguaGen()
     response = await lingua.request_handler(
-        request_id=id_request_audio,
+        # request_id=id_request_audio,
+        request_id=conversation_id,
         request_json={
             "model": "gpt-3.5-turbo-0125",
             "messages": conversation,
