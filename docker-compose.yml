@@ -1,0 +1,23 @@
+version: '3.8'
+services:
+  backend:
+    build: ./lingua-backend
+    command: uvicorn app:app --host 0.0.0.0 --port 5000
+    ports:
+    - 5000:5000
+    env_file:
+    - .env
+    environment:
+      MONGO_URI: ${MONGO_URI}
+      MONGO_DB_COLLECTION: ${MONGO_DB_COLLECTION}
+      API_KEY: ${API_KEY}
+
+  frontend:
+    build: ./lingua-frontend
+    ports:
+    - 3000:80
+    env_file:
+    - .env
+    environment:
+      BASE_URL: ${BASE_URL}
+      VITE_GOOGLE_CLIENT_ID: ${VITE_GOOGLE_CLIENT_ID}
