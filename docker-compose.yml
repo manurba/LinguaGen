@@ -6,18 +6,15 @@ services:
     ports:
     - 5000:5000
     env_file:
-    - .env
-    environment:
-      MONGO_URI: ${MONGO_URI}
-      MONGO_DB_COLLECTION: ${MONGO_DB_COLLECTION}
-      API_KEY: ${API_KEY}
+    - production.env
 
   frontend:
-    build: ./lingua-frontend
+    build:
+      context: ./lingua-frontend
+      args:
+        VITE_API_URL: ${VITE_API_URL}
+        VITE_BASE_URL: ${VITE_BASE_URL}
     ports:
     - 3000:80
     env_file:
-    - .env
-    environment:
-      BASE_URL: ${BASE_URL}
-      VITE_GOOGLE_CLIENT_ID: ${VITE_GOOGLE_CLIENT_ID}
+    - production.env

@@ -15,7 +15,7 @@ const callback = (response) => {
   if (response && !response.error) { // Simple check, adjust based on actual response structure
     localStorage.setItem('isAuthenticated', 'true');
     authState.isAuthenticated = true;
-    router.push({ name: 'chatbot' });
+    router.push({ name: 'Chatbot' });
   } else {
     // Handle login failure
     console.error('Login failed:', response.error);
