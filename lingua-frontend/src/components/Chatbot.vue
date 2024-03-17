@@ -28,6 +28,9 @@
 import { ref, nextTick } from 'vue';
 import { authState } from '../authState';
 
+
+const apiUrl = import.meta.env.VITE_API_URL;
+// console.log('API URL:', apiUrl);
 const messages = ref([]);
 const userInput = ref('');
 const isRecording = ref(false);
@@ -48,9 +51,11 @@ async function scrollToBottom() {
 // Fetch a new conversation ID from the server
 async function fetchConversationId() {
   try {
-    const response = await fetch('http://localhost:5000/new_conversation');
+    const response = await fetch(`${apiUrl}/new_conversation`);
     const data = await response.json();
     conversationId.value = data.conversation_id;
+    const newUrl = `${window.location.protocol}//${window.location.host}${window.location.pathname}?c=${conversationId.value}`;
+    window.history.pushState({ path: newUrl }, '', newUrl);
   } catch (error) {
     console.error('Error fetching new conversation ID:', error);
   }
@@ -77,7 +82,7 @@ async function sendMessage() {
 
 async function sendToServer(formData) {
   try {
-    const response = await fetch('http://localhost:5000/get_response', { method: 'POST', body: formData });
+    const response = await fetch(`${apiUrl}/get_response`, { method: 'POST', body: formData });
     if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
     const data = await response.json();
     handleServerResponse(data);
@@ -97,7 +102,7 @@ function handleServerResponse(data) {
 
   // Handle audio responses
   if (data.file) {
-    const audioResponseUrl = `http://localhost:5000/${data.file}`;
+    const audioResponseUrl = `${apiUrl}/${data.file}`;
     messages.value.push({ audioSrc: audioResponseUrl, isUser: false, isAudio: true });
 
     nextTick().then(playLastAudio);

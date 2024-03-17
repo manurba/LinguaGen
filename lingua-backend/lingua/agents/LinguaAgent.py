@@ -1,5 +1,6 @@
 import asyncio
-import io
+
+# import io
 import logging
 import os
 import time
@@ -7,9 +8,6 @@ import uuid
 
 import aiohttp
 from dotenv import load_dotenv
-from pydub import AudioSegment
-from pydub.playback import play
-
 from lingua.utils.dataclass import APIRequest, StatusTracker, audio2text, text2audio
 from lingua.utils.functions import (  # task_id_generator_function,
     api_endpoint_from_url,
@@ -249,11 +247,11 @@ async def main():
         model="tts-1",
     )
 
-    # Convert the byte string response to an audio segment
-    audio = AudioSegment.from_file(io.BytesIO(response), format="mp3")
+    # # Convert the byte string response to an audio segment
+    # audio = AudioSegment.from_file(io.BytesIO(response), format="mp3")
 
-    # Play the audio
-    play(audio)
+    # # Play the audio
+    # play(audio)
 
 
 if __name__ == "__main__":

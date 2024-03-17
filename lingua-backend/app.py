@@ -4,21 +4,23 @@ import uuid
 from typing import Optional
 
 import aiofiles
-import motor.motor_asyncio
+import aiosqlite
+
+# import motor.motor_asyncio
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, Form, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-
 from lingua.agents.LinguaAgent import LinguaGen
 from lingua.utils.dataclass import audio2text, text2audio
 
 load_dotenv()
 
-# Initialize MongoDB client and select your database and collection
-client = motor.motor_asyncio.AsyncIOMotorClient(os.getenv("MONGO_URI"))
-db = client.conversations_database
-conversations_collection = db.get_collection(os.getenv("MONGO_DB_COLLECTION"))
+# # Initialize MongoDB client and select your database and collection
+# client = motor.motor_asyncio.AsyncIOMotorClient(os.getenv("MONGO_URI"))
+# db = client.conversations_database
+# conversations_collection = db.get_collection(os.getenv("MONGO_DB_COLLECTION"))
+
 
 # Initialize FastAPI app
 app = FastAPI()
@@ -26,7 +28,10 @@ app = FastAPI()
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],  # Allows all origins
+    allow_origins=[
+        "http://localhost:3000",
+        "https://linguagen.azurewebsites.net",
+    ],  # Allows all origins
     allow_credentials=True,
     allow_methods=["*"],  # Allows all methods
     allow_headers=["*"],  # Allows all headers
@@ -34,34 +39,45 @@ app.add_middleware(
 
 app.mount("/data", StaticFiles(directory="data/"), name="data")
 
+SQL_DATABASE_URL = os.getenv("SQL_DATABASE_URL")
+
+
+async def create_conversation(conversation_id):
+    async with aiosqlite.connect(SQL_DATABASE_URL) as db:
+        await db.execute(
+            "INSERT INTO conversations (id, messages) VALUES (?, ?)",
+            (
+                conversation_id,
+                "[{'role': 'system', 'content': 'You are a helpful assistant.'}]",
+            ),
+        )
+        await db.commit()
+
+
+async def update_conversation(conversation_id, new_message):
+    async with aiosqlite.connect(SQL_DATABASE_URL) as db:
+        await db.execute(
+            "UPDATE conversations SET messages = ? WHERE id = ?",
+            (new_message, conversation_id),
+        )
+        await db.commit()
+
+
+async def get_conversation(conversation_id):
+    async with aiosqlite.connect(SQL_DATABASE_URL) as db:
+        cursor = await db.execute(
+            "SELECT messages FROM conversations WHERE id = ?",
+            (conversation_id,),
+        )
+        row = await cursor.fetchone()
+        return row[0] if row else None
+
 
 @app.get("/new_conversation")
 async def new_conversation():
     conversation_id = uuid.uuid4().hex
-    # Create a new conversation entry in MongoDB with a system message
-    await conversations_collection.insert_one(
-        {
-            "_id": conversation_id,
-            "messages": [
-                {"role": "system", "content": "You are a helpful assistant."}
-            ],
-        }
-    )
+    await create_conversation(conversation_id)
     return {"conversation_id": conversation_id}
-
-
-async def update_or_create_conversation(conversation_id, new_message):
-    # Check if the conversation already exists
-    conversation = await conversations_collection.find_one(
-        {"_id": conversation_id}
-    )
-
-    if conversation:
-        # If it exists, append the new message
-        await conversations_collection.update_one(
-            {"_id": conversation_id},
-            {"$push": {"messages": {"$each": new_message}}},
-        )
 
 
 @app.post("/get_response")
@@ -88,12 +104,12 @@ async def compute_reply(
         else:
             return {"error": "No input provided"}
 
-    get_conversation = await conversations_collection.find_one(
-        {"_id": conversation_id}
-    )
+    conversation = await get_conversation(conversation_id)
 
-    conversation = get_conversation["messages"]
+    if not conversation:
+        return {"error": "Conversation not found"}
 
+    conversation = eval(conversation)
     conversation.append({"role": "user", "content": text_response})
 
     # id_request_audio = uuid.uuid4().hex
@@ -104,7 +120,7 @@ async def compute_reply(
         request_json={
             "model": "gpt-3.5-turbo-0125",
             "messages": conversation,
-            "max_tokens": 100,
+            "max_tokens": 600,
         },
         request_url="https://api.openai.com/v1/chat/completions",
         max_requests_per_minute=415 * 0.5,
@@ -132,6 +148,7 @@ async def compute_reply(
     async with aiofiles.open(file_name, "wb") as audio_file:
         await audio_file.write(response)
 
-    await update_or_create_conversation(conversation_id, conversation)
+    # await update_or_create_conversation(conversation_id, conversation)
+    await update_conversation(conversation_id, str(conversation))
 
     return {"file": file_name, "conversation": conversation}
