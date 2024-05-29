@@ -8,7 +8,7 @@ import { authState } from './authState';
   <div class="container">
     <div class="content">
       <!-- Update the href if needed to point to your website or remove the <a> tag if not required -->
-      <a href="http://localhost:3000" target="_blank">
+      <a href="https://linguagen.azurewebsites.net" target="_blank">
         <!-- Update the src attribute to the path of your new logo file -->
         <img src="/LinguaGen_Logo-removebg.png" class="logo" alt="LinguaGen logo" />
       </a>

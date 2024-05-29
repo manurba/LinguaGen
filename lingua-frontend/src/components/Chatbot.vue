@@ -29,8 +29,9 @@ import { ref, nextTick } from 'vue';
 import { authState } from '../authState';
 
 
-const apiUrl = import.meta.env.VITE_API_URL;
+// const apiUrl = import.meta.env.VITE_API_URL;
 // console.log('API URL:', apiUrl);
+const apiUrl = "https://linguagen-backend.azurewebsites.net";
 const messages = ref([]);
 const userInput = ref('');
 const isRecording = ref(false);
