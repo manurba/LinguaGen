@@ -6,15 +6,12 @@ services:
     ports:
     - 5000:5000
     env_file:
-    - production.env
+    - local.env
 
   frontend:
     build:
       context: ./lingua-frontend
-      args:
-        VITE_API_URL: ${VITE_API_URL}
-        VITE_BASE_URL: ${VITE_BASE_URL}
     ports:
     - 3000:80
     env_file:
-    - production.env
+    - local.env

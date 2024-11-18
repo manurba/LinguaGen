@@ -17,8 +17,7 @@ app.use(VueGoogleLogin, {
 
 const restoreAuthState = () => {
   const isAuthenticated = localStorage.getItem('isAuthenticated') === 'true';
-  // Make sure to integrate this with your global state management or auth service
-  authState.isAuthenticated = isAuthenticated;
+  authState.setAuthenticated(isAuthenticated);
 };
 
 app.component('GoogleLoginButton', GoogleLoginButton);

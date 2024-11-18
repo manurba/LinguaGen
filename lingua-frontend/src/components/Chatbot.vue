@@ -1,37 +1,79 @@
 <template>
-  <div class="chat-container">
-    <div class="messages-container">
-      <div v-for="(message, index) in messages" :key="index"
-           class="message" :class="{ 'user-message': message.isUser,
+  <div class="chat-outer-container">
+    <div v-if="hasToken" class="logout-container">
+      <LogoutButton />
+    </div>
+    <div class="chat-container">
+      <div class="messages-container">
+        <div v-for="(message, index) in messages" :key="index"
+             class="message" :class="{ 'user-message': message.isUser,
                                       'bot-message': !message.isUser,
                                       'audio-message': message.isAudio }">
-        <template v-if="message.isAudio">
-          <div class="audio-player">
-            <audio :src="message.audioSrc" controls></audio>
-          </div>
-        </template>
-        <template v-else>
-          <div class="text-message">{{ message.text }}</div>
-        </template>
+          <template v-if="message.isAudio">
+            <div class="audio-player">
+              <audio :src="message.audioSrc" controls></audio>
+            </div>
+          </template>
+          <template v-else>
+            <div class="text-message">{{ message.text }}</div>
+          </template>
+        </div>
       </div>
-    </div>
-    <div class="input-container">
-      <input v-model="userInput" @keyup.enter="sendMessage" placeholder="Type a message..." type="text" :disabled="isRecording" />
-      <button v-if="authState.isAuthenticated && !isRecording && !isProcessing" @click="sendMessage" :disabled="isProcessing || isRecording">Send</button>
-      <button v-if="!isRecording" @click="startRecording" :disabled="isProcessing">Record</button>
-      <button v-else @click="stopRecording" :disabled="isProcessing">Stop</button>
+      <div class="input-container">
+        <div class="input-wrapper">
+          <textarea
+            v-model="userInput"
+            @keyup.enter.exact="sendMessage"
+            @keydown.enter.exact.prevent
+            placeholder="Type a message..."
+            :disabled="isRecording"
+            rows="1"
+            ref="messageInput"
+          ></textarea>
+          <div class="button-group">
+            <button
+              v-if="!isRecording"
+              @click="startRecording"
+              :disabled="isProcessing"
+              class="record-button"
+              :class="{ 'pulse': !isProcessing }"
+            >
+              <i class="fas fa-microphone"></i>
+            </button>
+            <button
+              v-else
+              @click="stopRecording"
+              :disabled="isProcessing"
+              class="record-button recording"
+            >
+              <i class="fas fa-stop"></i>
+            </button>
+            <button
+              v-if="hasToken"
+              @click="sendMessage"
+              :disabled="isProcessing || isRecording"
+              class="send-button"
+            >
+              <i class="fas fa-paper-plane"></i>
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, nextTick } from 'vue';
-import { authState } from '../authState';
+import { ref, nextTick, watch, computed } from 'vue';
+import LogoutButton from './LogoutButton.vue';
 
+const hasToken = computed(() => {
+  return !!localStorage.getItem('google_token');
+});
 
 // const apiUrl = import.meta.env.VITE_API_URL;
 // console.log('API URL:', apiUrl);
-const apiUrl = "https://linguagen-backend.azurewebsites.net";
+const apiUrl = import.meta.env.VITE_API_URL || "http://localhost:5000";
 const messages = ref([]);
 const userInput = ref('');
 const isRecording = ref(false);
@@ -39,6 +81,7 @@ const audioChunks = ref([]);
 const conversationId = ref('');
 const isProcessing = ref(false);
 let mediaRecorder;
+const messageInput = ref(null);
 
 // Function to scroll the conversation to the bottom
 async function scrollToBottom() {
@@ -164,34 +207,72 @@ async function stopRecording() {
   };
   scrollToBottom();
 }
+
+// Add this function to handle textarea auto-resize
+function adjustTextareaHeight(event) {
+  const textarea = event.target;
+  textarea.style.height = 'auto';
+  const newHeight = Math.min(textarea.scrollHeight, 100); // Max height of ~4-5 lines
+  textarea.style.height = newHeight + 'px';
+}
+
+// Add watch effect for userInput
+watch(userInput, () => {
+  nextTick(() => {
+    if (messageInput.value) {
+      adjustTextareaHeight({ target: messageInput.value });
+    }
+  });
+});
 </script>
 
 <style scoped>
+.chat-outer-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  height: calc(100vh - 17rem);
+}
+
+.logout-container {
+  width: 100%;
+  max-width: 1000px;
+  display: flex;
+  justify-content: flex-end;
+  padding-bottom: 0.5rem;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
 .chat-container {
   display: flex;
   flex-direction: column;
-  height: 70vh;
-  width: 500px;
-  margin: auto;
-  border: 1px solid #ccc;
-  border-radius: 8px;
+  width: 100%;
+  max-width: 1000px;
+  height: 100%;
+  min-height: 300px;
+  margin: 0 auto;
+  border: none;
+  border-radius: 16px;
   overflow: hidden;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.1);
+  background-color: #ffffff;
 }
 
 .messages-container {
-  flex-grow: 1;
-  padding: 20px;
+  flex: 1;
   overflow-y: auto;
-  background-color: #fffffc; /* Lightest color for the background */
+  padding: 1rem;
 }
 
 .message {
-  word-break: break-word;
+  padding: 14px 18px;
   margin-bottom: 12px;
-  padding: 10px;
-  border-radius: 20px;
-  color: white; /* Keeping text color white */
-  max-width: 70%;
+  border-radius: 16px;
+  max-width: 60%;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
 }
 
 .audio-message {
@@ -206,75 +287,188 @@ async function stopRecording() {
 }
 
 .user-message {
-  background-color: #ffbfc4; /* User message background color */
-  margin-left: auto; /* Push user messages to the right */
-  align-items: flex-start; /* Align text to the top-left of the message box */
+  background-color: #007AFF;
+  color: white;
+  margin-left: auto;
+  border-bottom-right-radius: 4px;
 }
 
 .bot-message {
-  background-color: #c5ab9e; /* Bot message background color */
-  margin-right: auto; /* Push bot messages to the left */
-  align-items: flex-start; /* Align text to the top-left of the message box */
+  background-color: #ffffff;
+  color: #1e293b;
+  margin-right: auto;
+  border-bottom-left-radius: 4px;
+  border: 1px solid rgba(0, 0, 0, 0.1);
 }
 
 .input-container {
+  padding: 1rem;
+  background-color: white;
+  border-top: 1px solid #eee;
+  position: sticky;
+  bottom: 0;
+}
+
+.input-wrapper {
   display: flex;
-  padding: 10px;
-  background-color: #a9a18c; /* Darker shade for the input area */
-  border-top: 1px solid #ccc;
+  align-items: flex-end; /* Align items to bottom */
+  background-color: #f1f5f9;
+  border-radius: 12px;
+  padding: 6px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+  transition: all 0.2s ease;
 }
 
-.input-container input {
+.input-wrapper textarea {
   flex-grow: 1;
-  margin-right: 10px;
-  padding: 10px;
-  border: 1px solid #ccc;
-  border-radius: 20px;
-  background-color: #fffffc; /* Input background color */
-  color: #000000; /* Input text color */
-}
-
-.input-container button:disabled {
-  background-color: #ccc; /* Greyed out */
-  cursor: not-allowed;
-}
-
-.input-container button {
-  padding: 10px 20px;
+  padding: 12px 16px;
+  font-size: 16px;
   border: none;
-  border-radius: 20px;
-  background-color: #ffbfc4; /* Button background color */
-  color: white;
+  background: transparent;
+  color: #1e293b;
+  outline: none;
+  resize: none;
+  min-height: 24px;
+  max-height: 100px; /* Approximately 4-5 lines */
+  line-height: 1.5;
+  font-family: inherit;
+  margin: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+.input-wrapper textarea::placeholder {
+  color: #94a3b8;
+}
+
+/* Custom scrollbar for textarea */
+.input-wrapper textarea::-webkit-scrollbar {
+  width: 4px;
+}
+
+.input-wrapper textarea::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.input-wrapper textarea::-webkit-scrollbar-thumb {
+  background-color: rgba(0, 0, 0, 0.2);
+  border-radius: 2px;
+}
+
+.button-group {
+  display: flex;
+  gap: 8px;
+  padding: 0 8px;
+  align-self: flex-end;
+  margin-bottom: 6px;
+}
+
+.record-button, .send-button {
+  width: 42px;
+  height: 42px;
+  border: none;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.record-button {
+  background-color: #ef4444;
+  color: white;
+}
+
+.record-button:hover:not(:disabled) {
+  background-color: #dc2626;
+}
+
+.record-button.recording {
+  background-color: #dc2626;
+}
+
+.send-button {
+  background-color: #007AFF;
+  color: white;
+}
+
+.send-button:hover:not(:disabled) {
+  background-color: #0056b3;
+}
+
+.send-button:disabled, .record-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.pulse {
+  transition: transform 0.2s;
+}
+
+.pulse:hover {
+  transform: scale(1.05);
+}
+
+@keyframes pulse {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.05); }
+  100% { transform: scale(1); }
+}
+
+.audio-player {
+  background-color: #ffffff;
+  padding: 12px;
+  border-radius: 12px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
 }
 
 .audio-player audio {
   width: 100%;
-  outline: none;
+  height: 40px;
+  border-radius: 8px;
 }
 
-.audio-player {
-  border-radius: 20px;
-  overflow: hidden;
+/* Custom scrollbar for messages container */
+.messages-container::-webkit-scrollbar {
+  width: 8px;
 }
 
-/* Adjust the audio player controls to match the theme */
-.audio-player audio::-webkit-media-controls-panel {
-  background-color: #fad5d8;
-  color: white;
+.messages-container::-webkit-scrollbar-track {
+  background: transparent;
 }
 
-.audio-player audio::-webkit-media-controls-play-button,
-.audio-player audio::-webkit-media-controls-current-time-display,
-.audio-player audio::-webkit-media-controls-time-remaining-display,
-.audio-player audio::-webkit-media-controls-volume-slider,
-.audio-player audio::-webkit-media-controls-mute-button,
-.audio-player audio::-webkit-media-controls-fullscreen-button {
-  color: white;
+.messages-container::-webkit-scrollbar-thumb {
+  background-color: rgba(0, 0, 0, 0.2);
+  border-radius: 4px;
 }
 
-.audio-player audio::-webkit-media-controls-progress-bar,
-.audio-player audio::-webkit-media-controls-timeline {
-  display: none;
+.messages-container::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(0, 0, 0, 0.3);
+}
+
+h2 {
+  color: #213547;
+  margin: 0;
+}
+
+.logout-button-position {
+  position: absolute;
+  top: 1rem;
+  right: 20%;  /* Aligns with the right edge of your chat container */
+}
+
+/* Add responsive adjustments */
+@media (max-height: 600px) {
+  .chat-outer-container {
+    height: auto;
+    height: calc(100vh - 8rem);
+  }
+
+  .chat-container {
+    height: auto;
+    min-height: 250px;
+  }
 }
 </style>

@@ -1,7 +1,8 @@
 import { createRouter, createWebHistory } from 'vue-router';
-import HomePage from '../components/HelloWorld.vue';
-import { authState } from '../authState';
+import HomePage from '../components/HomePage.vue';
 import Login from '../views/Login.vue';
+import { isValidToken } from '../utils/auth';
+import { authState } from '../authState';
 
 const routes = [
     {
@@ -28,12 +29,23 @@ const router = createRouter({
 });
 
 router.beforeEach((to, from, next) => {
-  const isAuthenticated = localStorage.getItem('isAuthenticated') === 'true';
-  if (to.matched.some(record => record.meta.requiresAuth) && !isAuthenticated) {
-    next({ name: 'Login' });
+  if (to.matched.some(record => record.meta.requiresAuth)) {
+    if (!isValidToken()) {
+      next({ name: 'Login' });
+    } else {
+      next();
+    }
   } else {
     next();
   }
 });
+
+const navigateToPractice = () => {
+    if (authState.checkAuth()) {
+        router.push({ name: 'Chatbot' });
+    } else {
+        router.push({ name: 'Login' });
+    }
+};
 
 export default router;

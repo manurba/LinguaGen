@@ -1,16 +1,22 @@
 import io
 import os
 import uuid
+from datetime import datetime, timedelta
 from typing import Optional
 
 import aiofiles
 import aiosqlite
+import jwt
 
 # import motor.motor_asyncio
 from dotenv import load_dotenv
-from fastapi import FastAPI, File, Form, UploadFile
+from fastapi import FastAPI, File, Form, Header, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
+from google.auth.transport import requests
+from google.oauth2 import id_token
+from google_auth_oauthlib.flow import Flow
 from lingua.agents.LinguaAgent import LinguaGen
 from lingua.utils.dataclass import audio2text, text2audio
 
@@ -31,15 +37,47 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:3000",
         "https://linguagen.azurewebsites.net",
-    ],  # Allows all origins
+        "https://linguagen.tech",
+    ],
     allow_credentials=True,
-    allow_methods=["*"],  # Allows all methods
-    allow_headers=["*"],  # Allows all headers
+    allow_methods=["*"],
+    allow_headers=["*", "Authorization", "Content-Type"],
+    expose_headers=["*"],
 )
 
 app.mount("/data", StaticFiles(directory="data/"), name="data")
 
 SQL_DATABASE_URL = os.getenv("SQL_DATABASE_URL")
+
+
+# Add after SQL_DATABASE_URL definition
+async def init_db():
+    async with aiosqlite.connect(SQL_DATABASE_URL) as db:
+        # Create whitelist table if it doesn't exist
+        await db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS whitelist (
+                email TEXT PRIMARY KEY,
+                added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """
+        )
+        await db.commit()
+
+
+# Add after app initialization
+@app.on_event("startup")
+async def startup_event():
+    await init_db()
+
+
+async def check_whitelist(email: str) -> bool:
+    async with aiosqlite.connect(SQL_DATABASE_URL) as db:
+        cursor = await db.execute(
+            "SELECT email FROM whitelist WHERE email = ?", (email,)
+        )
+        result = await cursor.fetchone()
+        return bool(result)
 
 
 async def create_conversation(conversation_id):
@@ -152,3 +190,210 @@ async def compute_reply(
     await update_conversation(conversation_id, str(conversation))
 
     return {"file": file_name, "conversation": conversation}
+
+
+# Add new OAuth routes
+@app.post("/auth/google-login")
+async def google_login(request: Request):
+    try:
+        # Get the request body as JSON
+        body = await request.json()
+        code = body.get("code")
+        if not code:
+            raise HTTPException(
+                status_code=400, detail="Authorization code is required"
+            )
+
+        # Create the flow using the client secrets
+        flow = Flow.from_client_config(
+            {
+                "web": {
+                    "client_id": os.getenv("GOOGLE_CLIENT_ID"),
+                    "client_secret": os.getenv("GOOGLE_CLIENT_SECRET"),
+                    "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                    "token_uri": "https://oauth2.googleapis.com/token",
+                    "redirect_uri": os.getenv("REDIRECT_URI"),
+                }
+            },
+            scopes=[
+                "https://www.googleapis.com/auth/userinfo.email",
+                "https://www.googleapis.com/auth/userinfo.profile",
+                "openid",
+            ],
+        )
+
+        # Set the redirect URI
+        flow.redirect_uri = os.getenv("REDIRECT_URI")
+
+        try:
+            # Exchange the authorization code for credentials
+            flow.fetch_token(code=code)
+        except Exception as e:
+            print(f"Error fetching token: {str(e)}")
+            raise HTTPException(
+                status_code=400, detail="Failed to exchange authorization code"
+            )
+
+        try:
+            # Get the ID token from credentials
+            credentials = flow.credentials
+            id_info = id_token.verify_oauth2_token(
+                credentials.id_token,
+                requests.Request(),
+                os.getenv("GOOGLE_CLIENT_ID"),
+                clock_skew_in_seconds=2,
+            )
+        except Exception as e:
+            print(f"Error verifying token: {str(e)}")
+            raise HTTPException(
+                status_code=400, detail="Failed to verify Google token"
+            )
+
+        # Add whitelist check after verifying Google token
+        user_email = id_info["email"]
+        print(f"This is the user email: {user_email}")
+        is_whitelisted = await check_whitelist(user_email)
+
+        if not is_whitelisted:
+            raise HTTPException(
+                status_code=403,
+                detail="Access denied. Your email is not whitelisted.",
+            )
+
+        # Create a JWT token for your application
+        try:
+            token = jwt.encode(
+                {
+                    "sub": id_info["sub"],
+                    "email": id_info["email"],
+                    "name": id_info.get("name", ""),
+                    "exp": datetime.utcnow() + timedelta(days=1),
+                },
+                os.getenv("JWT_SECRET_KEY"),
+                algorithm="HS256",
+            )
+        except Exception as e:
+            print(f"Error creating JWT: {str(e)}")
+            raise HTTPException(
+                status_code=500, detail="Failed to create authentication token"
+            )
+
+        return JSONResponse(content={"token": token})
+
+    except HTTPException as he:
+        raise he
+    except Exception as e:
+        print(f"Unexpected error in google_login: {str(e)}")
+        raise HTTPException(status_code=500, detail="Authentication failed")
+
+
+# Add this middleware to protect your routes
+async def verify_token(token: str):
+    try:
+        payload = jwt.decode(
+            token, os.getenv("JWT_SECRET_KEY"), algorithms=["HS256"]
+        )
+        return payload
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Token has expired")
+    except jwt.JWTError:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    except Exception as e:
+        print(f"Unexpected error in verify_token: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail="Token verification failed"
+        )
+
+
+# Example of protecting a route (you can add this to other routes that need protection)
+@app.get("/protected-route")
+async def protected_route(authorization: str = Header(None)):
+    if not authorization or not authorization.startswith("Bearer "):
+        return {"error": "No valid token provided"}, 401
+
+    token = authorization.split(" ")[1]
+    payload = await verify_token(token)
+
+    if not payload:
+        return {"error": "Invalid or expired token"}, 401
+
+    return {"message": "Access granted", "user": payload}
+
+
+# Add these new admin endpoints
+@app.post("/admin/whitelist/add")
+async def add_to_whitelist(email: str, authorization: str = Header(None)):
+    # Verify admin token first
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="No valid token provided")
+
+    token = authorization.split(" ")[1]
+    payload = await verify_token(token)
+
+    # Check if the user is an admin (you'll need to add an is_admin field to your JWT)
+    if not payload.get("is_admin"):
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    async with aiosqlite.connect(SQL_DATABASE_URL) as db:
+        try:
+            await db.execute(
+                "INSERT INTO whitelist (email) VALUES (?)", (email,)
+            )
+            await db.commit()
+            return {"message": f"Added {email} to whitelist"}
+        except aiosqlite.IntegrityError:
+            raise HTTPException(
+                status_code=400, detail="Email already whitelisted"
+            )
+
+
+@app.delete("/admin/whitelist/remove")
+async def remove_from_whitelist(email: str, authorization: str = Header(None)):
+    # Similar admin verification as above
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="No valid token provided")
+
+    token = authorization.split(" ")[1]
+    payload = await verify_token(token)
+
+    if not payload.get("is_admin"):
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    async with aiosqlite.connect(SQL_DATABASE_URL) as db:
+        await db.execute("DELETE FROM whitelist WHERE email = ?", (email,))
+        await db.commit()
+        return {"message": f"Removed {email} from whitelist"}
+
+
+@app.post("/auth/request-access")
+async def request_access(request: Request):
+    data = await request.json()
+    email = data.get("email")
+
+    if not email:
+        raise HTTPException(status_code=400, detail="Email is required")
+
+    # You might want to store this in a database table
+    async with aiosqlite.connect(SQL_DATABASE_URL) as db:
+        await db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS whitelist_requests (
+                email TEXT PRIMARY KEY,
+                requested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                status TEXT DEFAULT 'pending'
+            )
+        """
+        )
+
+        try:
+            await db.execute(
+                "INSERT INTO whitelist_requests (email) VALUES (?)", (email,)
+            )
+            await db.commit()
+
+            # Here you might want to send an email notification to administrators
+            # about the new access request
+
+            return {"message": "Access request submitted successfully"}
+        except aiosqlite.IntegrityError:
+            return {"message": "Access request already submitted"}

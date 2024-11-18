@@ -1,6 +1,7 @@
 <script setup>
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { isValidToken } from '../utils/auth'
 
 // Existing setup code
 defineProps({
@@ -13,12 +14,9 @@ const count = ref(0)
 const router = useRouter();
 
 const navigateToPractice = () => {
-  const isAuthenticated = localStorage.getItem('isAuthenticated') === 'true';
-  if (isAuthenticated) {
-    // User is authenticated, navigate to Chatbot
+  if (isValidToken()) {
     router.push({ name: 'Chatbot' });
   } else {
-    // User is not authenticated, navigate to Login
     router.push({ name: 'Login' });
   }
 };
