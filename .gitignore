@@ -154,3 +154,5 @@ cython_debug/
 /.history
 /lingua-backend/data
 *.env
+.env*
+lingua-frontend/package-lock.json

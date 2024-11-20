@@ -12,6 +12,7 @@ name = "LinguaGen"
 version = "0.1.0"
 
 [tool.poetry.dependencies]
+asyncpg = "^0.29.0"
 PyJWT = "^2.9.0"
 aiofiles = "^23.2.1"
 aiohttp = "^3.9.3"

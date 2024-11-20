@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 from typing import Optional
 
 import aiofiles
-import aiosqlite
+import asyncpg
 import jwt
 
 # import motor.motor_asyncio
@@ -38,6 +38,7 @@ app.add_middleware(
         "http://localhost:3000",
         "https://linguagen.azurewebsites.net",
         "https://linguagen.tech",
+        "https://core.linguagen.tech",
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -47,22 +48,34 @@ app.add_middleware(
 
 app.mount("/data", StaticFiles(directory="data/"), name="data")
 
-SQL_DATABASE_URL = os.getenv("SQL_DATABASE_URL")
+DATABASE_URL = f"postgresql://{os.getenv('POSTGRES_USER')}:{os.getenv('POSTGRES_PASSWORD')}@db:5432/{os.getenv('POSTGRES_DB')}"
 
 
 # Add after SQL_DATABASE_URL definition
 async def init_db():
-    async with aiosqlite.connect(SQL_DATABASE_URL) as db:
-        # Create whitelist table if it doesn't exist
-        await db.execute(
-            """
-            CREATE TABLE IF NOT EXISTS whitelist (
-                email TEXT PRIMARY KEY,
-                added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """
+    conn = await asyncpg.connect(DATABASE_URL)
+    await conn.execute('''
+        CREATE TABLE IF NOT EXISTS whitelist (
+            email TEXT PRIMARY KEY,
+            added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
-        await db.commit()
+    ''')
+    await conn.execute('''
+        CREATE TABLE IF NOT EXISTS conversations (
+            id TEXT PRIMARY KEY,
+            email TEXT,
+            messages TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    await conn.execute('''
+        CREATE TABLE IF NOT EXISTS whitelist_requests (
+            email TEXT PRIMARY KEY,
+            requested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            status TEXT DEFAULT 'pending'
+        )
+    ''')
+    await conn.close()
 
 
 # Add after app initialization
@@ -72,49 +85,62 @@ async def startup_event():
 
 
 async def check_whitelist(email: str) -> bool:
-    async with aiosqlite.connect(SQL_DATABASE_URL) as db:
-        cursor = await db.execute(
-            "SELECT email FROM whitelist WHERE email = ?", (email,)
-        )
-        result = await cursor.fetchone()
-        return bool(result)
+    conn = await asyncpg.connect(DATABASE_URL)
+    result = await conn.fetchval(
+        'SELECT email FROM whitelist WHERE email = $1',
+        email
+    )
+    await conn.close()
+    return bool(result)
 
 
-async def create_conversation(conversation_id):
-    async with aiosqlite.connect(SQL_DATABASE_URL) as db:
-        await db.execute(
-            "INSERT INTO conversations (id, messages) VALUES (?, ?)",
-            (
-                conversation_id,
-                "[{'role': 'system', 'content': 'You are a helpful assistant.'}]",
-            ),
+async def create_conversation(conversation_id, email):
+    conn = await asyncpg.connect(DATABASE_URL)
+    try:
+        await conn.execute(
+            "INSERT INTO conversations (id, email, messages) VALUES ($1, $2, $3)",
+            conversation_id,
+            email,
+            "[{'role': 'system', 'content': 'You are a helpful assistant.'}]",
         )
-        await db.commit()
+    finally:
+        await conn.close()
 
 
 async def update_conversation(conversation_id, new_message):
-    async with aiosqlite.connect(SQL_DATABASE_URL) as db:
-        await db.execute(
-            "UPDATE conversations SET messages = ? WHERE id = ?",
-            (new_message, conversation_id),
+    conn = await asyncpg.connect(DATABASE_URL)
+    try:
+        await conn.execute(
+            "UPDATE conversations SET messages = $1 WHERE id = $2",
+            new_message, conversation_id,
         )
-        await db.commit()
+    finally:
+        await conn.close()
 
 
 async def get_conversation(conversation_id):
-    async with aiosqlite.connect(SQL_DATABASE_URL) as db:
-        cursor = await db.execute(
-            "SELECT messages FROM conversations WHERE id = ?",
-            (conversation_id,),
+    conn = await asyncpg.connect(DATABASE_URL)
+    try:
+        row = await conn.fetchrow(
+            "SELECT email, messages, created_at FROM conversations WHERE id = $1",
+            conversation_id,
         )
-        row = await cursor.fetchone()
-        return row[0] if row else None
+        return row if row else None
+    finally:
+        await conn.close()
 
 
 @app.get("/new_conversation")
-async def new_conversation():
+async def new_conversation(authorization: str = Header(None)):
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="No valid token provided")
+
+    token = authorization.split(" ")[1]
+    payload = await verify_token(token)
+    email = payload["email"]
+
     conversation_id = uuid.uuid4().hex
-    await create_conversation(conversation_id)
+    await create_conversation(conversation_id, email)
     return {"conversation_id": conversation_id}
 
 
@@ -147,7 +173,7 @@ async def compute_reply(
     if not conversation:
         return {"error": "Conversation not found"}
 
-    conversation = eval(conversation)
+    conversation =  eval(conversation['messages'])
     conversation.append({"role": "user", "content": text_response})
 
     # id_request_audio = uuid.uuid4().hex
@@ -323,46 +349,30 @@ async def protected_route(authorization: str = Header(None)):
 # Add these new admin endpoints
 @app.post("/admin/whitelist/add")
 async def add_to_whitelist(email: str, authorization: str = Header(None)):
-    # Verify admin token first
-    if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="No valid token provided")
-
-    token = authorization.split(" ")[1]
-    payload = await verify_token(token)
-
-    # Check if the user is an admin (you'll need to add an is_admin field to your JWT)
-    if not payload.get("is_admin"):
-        raise HTTPException(status_code=403, detail="Admin access required")
-
-    async with aiosqlite.connect(SQL_DATABASE_URL) as db:
-        try:
-            await db.execute(
-                "INSERT INTO whitelist (email) VALUES (?)", (email,)
-            )
-            await db.commit()
-            return {"message": f"Added {email} to whitelist"}
-        except aiosqlite.IntegrityError:
-            raise HTTPException(
-                status_code=400, detail="Email already whitelisted"
-            )
+    conn = await asyncpg.connect(DATABASE_URL)
+    try:
+        await conn.execute(
+            "INSERT INTO whitelist (email) VALUES ($1)", email
+        )
+        return {"message": f"Added {email} to whitelist"}
+    except asyncpg.UniqueViolationError:
+        raise HTTPException(
+            status_code=400, detail="Email already whitelisted"
+        )
+    finally:
+        await conn.close()
 
 
 @app.delete("/admin/whitelist/remove")
 async def remove_from_whitelist(email: str, authorization: str = Header(None)):
-    # Similar admin verification as above
-    if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="No valid token provided")
-
-    token = authorization.split(" ")[1]
-    payload = await verify_token(token)
-
-    if not payload.get("is_admin"):
-        raise HTTPException(status_code=403, detail="Admin access required")
-
-    async with aiosqlite.connect(SQL_DATABASE_URL) as db:
-        await db.execute("DELETE FROM whitelist WHERE email = ?", (email,))
-        await db.commit()
+    conn = await asyncpg.connect(DATABASE_URL)
+    try:
+        await conn.execute(
+            "DELETE FROM whitelist WHERE email = $1", email
+        )
         return {"message": f"Removed {email} from whitelist"}
+    finally:
+        await conn.close()
 
 
 @app.post("/auth/request-access")
@@ -373,27 +383,13 @@ async def request_access(request: Request):
     if not email:
         raise HTTPException(status_code=400, detail="Email is required")
 
-    # You might want to store this in a database table
-    async with aiosqlite.connect(SQL_DATABASE_URL) as db:
-        await db.execute(
-            """
-            CREATE TABLE IF NOT EXISTS whitelist_requests (
-                email TEXT PRIMARY KEY,
-                requested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                status TEXT DEFAULT 'pending'
-            )
-        """
+    conn = await asyncpg.connect(DATABASE_URL)
+    try:
+        await conn.execute(
+            "INSERT INTO whitelist_requests (email) VALUES ($1)", email
         )
-
-        try:
-            await db.execute(
-                "INSERT INTO whitelist_requests (email) VALUES (?)", (email,)
-            )
-            await db.commit()
-
-            # Here you might want to send an email notification to administrators
-            # about the new access request
-
-            return {"message": "Access request submitted successfully"}
-        except aiosqlite.IntegrityError:
-            return {"message": "Access request already submitted"}
+        return {"message": "Access request submitted successfully"}
+    except asyncpg.UniqueViolationError:
+        return {"message": "Access request already submitted"}
+    finally:
+        await conn.close()

@@ -71,9 +71,8 @@ const hasToken = computed(() => {
   return !!localStorage.getItem('google_token');
 });
 
-// const apiUrl = import.meta.env.VITE_API_URL;
-// console.log('API URL:', apiUrl);
-const apiUrl = import.meta.env.VITE_API_URL || "http://localhost:5000";
+const apiUrl = import.meta.env.VITE_API_URL;
+// const apiUrl = import.meta.env.VITE_API_URL || "http://localhost:5000";
 const messages = ref([]);
 const userInput = ref('');
 const isRecording = ref(false);
@@ -95,7 +94,12 @@ async function scrollToBottom() {
 // Fetch a new conversation ID from the server
 async function fetchConversationId() {
   try {
-    const response = await fetch(`${apiUrl}/new_conversation`);
+    const token = localStorage.getItem('google_token');
+    const response = await fetch(`${apiUrl}/new_conversation`, {
+      headers: {
+        'Authorization': `Bearer ${token}`
+      }
+    });
     const data = await response.json();
     conversationId.value = data.conversation_id;
     const newUrl = `${window.location.protocol}//${window.location.host}${window.location.pathname}?c=${conversationId.value}`;
@@ -126,7 +130,15 @@ async function sendMessage() {
 
 async function sendToServer(formData) {
   try {
-    const response = await fetch(`${apiUrl}/get_response`, { method: 'POST', body: formData });
+    const token = localStorage.getItem('google_token');
+    const response = await fetch(`${apiUrl}/get_response`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`
+      },
+      body: formData,
+      credentials: 'include'  // Add this line
+    });
     if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
     const data = await response.json();
     handleServerResponse(data);
