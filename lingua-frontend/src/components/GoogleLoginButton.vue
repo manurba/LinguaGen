@@ -81,7 +81,7 @@ const handleCallback = async (response) => {
 
         localStorage.setItem('google_token', authData.token);
         authState.setAuthenticated(true);
-        await router.push({ name: 'Chatbot' });
+        await router.push({ name: 'Chat' });
     } catch (error) {
         if (error.name === 'AbortError') {
             emit('login-error', 'Request timed out. Please try again.');

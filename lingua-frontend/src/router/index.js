@@ -6,8 +6,8 @@ import { authState } from '../authState';
 
 const routes = [
     {
-        path: '/chatbot',
-        name: 'Chatbot',
+        path: '/c/chat',
+        name: 'Chat',
         component: () => import('../components/Chatbot.vue'),
         meta: { requiresAuth: true }
     },
@@ -42,7 +42,7 @@ router.beforeEach((to, from, next) => {
 
 const navigateToPractice = () => {
     if (authState.checkAuth()) {
-        router.push({ name: 'Chatbot' });
+        router.push({ name: 'Chat' });
     } else {
         router.push({ name: 'Login' });
     }

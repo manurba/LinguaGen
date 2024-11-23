@@ -1,12 +1,21 @@
 <template>
   <div class="chat-outer-container">
-    <div v-if="hasToken" class="logout-container">
-      <LogoutButton />
+    <div class="buttons-container">
+      <button 
+        @click="startNewConversation" 
+        class="new-conversation-button"
+        :disabled="isProcessing"
+      >
+        <i class="fas fa-plus"></i> New Chat
+      </button>
+      <div class="logout-container">
+        <LogoutButton />
+      </div>
     </div>
     <div class="chat-container">
       <div class="messages-container">
         <div v-for="(message, index) in messages" :key="index"
-             class="message" :class="{ 'user-message': message.isUser,
+            class="message" :class="{ 'user-message': message.isUser,
                                       'bot-message': !message.isUser,
                                       'audio-message': message.isAudio }">
           <template v-if="message.isAudio">
@@ -72,7 +81,6 @@ const hasToken = computed(() => {
 });
 
 const apiUrl = import.meta.env.VITE_API_URL;
-// const apiUrl = import.meta.env.VITE_API_URL || "http://localhost:5000";
 const messages = ref([]);
 const userInput = ref('');
 const isRecording = ref(false);
@@ -91,8 +99,24 @@ async function scrollToBottom() {
   }
 }
 
-// Fetch a new conversation ID from the server
-async function fetchConversationId() {
+// Function to get conversation ID from URL
+function getConversationIdFromUrl() {
+  const urlParams = new URLSearchParams(window.location.search);
+  return urlParams.get('c');
+}
+
+// Modify the fetchConversationId function
+async function fetchConversationId(forceNew = false) {
+  // Check URL for existing conversation ID first
+  if (!forceNew) {
+    const urlConversationId = getConversationIdFromUrl();
+    if (urlConversationId) {
+      conversationId.value = urlConversationId;
+      await fetchMessages();
+      return;
+    }
+  }
+
   try {
     const token = localStorage.getItem('google_token');
     const response = await fetch(`${apiUrl}/new_conversation`, {
@@ -104,8 +128,47 @@ async function fetchConversationId() {
     conversationId.value = data.conversation_id;
     const newUrl = `${window.location.protocol}//${window.location.host}${window.location.pathname}?c=${conversationId.value}`;
     window.history.pushState({ path: newUrl }, '', newUrl);
+    await fetchMessages(); // Fetch messages when conversation ID is known
   } catch (error) {
     console.error('Error fetching new conversation ID:', error);
+  }
+}
+
+// New function to fetch previous messages
+async function fetchMessages() {
+  try {
+    const token = localStorage.getItem('google_token');
+    const response = await fetch(`${apiUrl}/get_conversation?conversation_id=${conversationId.value}`, {
+      headers: {
+        'Authorization': `Bearer ${token}`
+      }
+    });
+
+    if (response.status === 404) {
+      // Conversation not found or access denied
+      // Handle by creating a new conversation
+      await fetchConversationId(true);
+      return;
+    }
+
+    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+    const data = await response.json();
+    if (data.messages) {
+      // Map messages to the format used in messages.value
+      messages.value = data.messages.map(msg => {
+        if (msg.role === 'user') {
+          return { text: msg.content, isUser: true, isAudio: false };
+        } else if (msg.role === 'assistant') {
+          // Only display text for previous assistant messages
+          return { text: msg.content, isUser: false, isAudio: false };
+        } else {
+          return null; // Ignore other roles like 'system'
+        }
+      }).filter(msg => msg !== null);
+      await scrollToBottom();
+    }
+  } catch (error) {
+    console.error('Error fetching conversation messages:', error);
   }
 }
 
@@ -137,33 +200,34 @@ async function sendToServer(formData) {
         'Authorization': `Bearer ${token}`
       },
       body: formData,
-      credentials: 'include'  // Add this line
+      credentials: 'include'
     });
     if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
     const data = await response.json();
     handleServerResponse(data);
   } catch (error) {
     console.error('Error communicating with server:', error);
+    isProcessing.value = false; // Reset processing state on error
   }
 }
 
 function handleServerResponse(data) {
-  // Handle text responses
+  // Handle text and audio responses
   if (data.conversation) {
     const botResponse = data.conversation[data.conversation.length - 1];
     if (botResponse && botResponse.role === 'assistant') {
       messages.value.push({ text: botResponse.content, isUser: false, isAudio: false });
+
+      // Handle audio data if available
+      if (data.audio_data) {
+        const audioSrc = 'data:audio/wav;base64,' + data.audio_data;
+        messages.value.push({ audioSrc: audioSrc, isUser: false, isAudio: true });
+        nextTick().then(playLastAudio);
+      }
     }
   }
 
-  // Handle audio responses
-  if (data.file) {
-    const audioResponseUrl = `${apiUrl}/${data.file}`;
-    messages.value.push({ audioSrc: audioResponseUrl, isUser: false, isAudio: true });
-
-    nextTick().then(playLastAudio);
-  }
-  scrollToBottom(); // Scroll to bottom after sending a message
+  scrollToBottom(); // Scroll to bottom after receiving a message
 }
 
 function playLastAudio() {
@@ -174,6 +238,8 @@ function playLastAudio() {
     lastAudioElement.onended = () => {
       isProcessing.value = false;
     };
+  } else {
+    isProcessing.value = false; // Ensure isProcessing is reset if no audio element is found
   }
 }
 
@@ -236,6 +302,23 @@ watch(userInput, () => {
     }
   });
 });
+
+const playAudio = (message) => {
+    if (message.role === 'assistant' && message.audio_file) {
+        const audio = new Audio(`${import.meta.env.VITE_API_URL}/${message.audio_file}`);
+        audio.play();
+    }
+};
+
+const startNewConversation = async () => {
+  try {
+    await fetchConversationId(true); // Pass true to force new conversation
+    messages.value = []; // Clear current messages
+    userInput.value = ''; // Clear input field
+  } catch (error) {
+    console.error('Error creating new conversation:', error);
+  }
+};
 </script>
 
 <style scoped>
@@ -247,15 +330,47 @@ watch(userInput, () => {
   height: calc(100vh - 17rem);
 }
 
-.logout-container {
+.buttons-container {
   width: 100%;
   max-width: 1000px;
   display: flex;
-  justify-content: flex-end;
+  justify-content: space-between;
+  align-items: center;
   padding-bottom: 0.5rem;
   position: sticky;
   top: 0;
   z-index: 1;
+}
+
+.new-conversation-button {
+  background-color: #007AFF;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  padding: 8px 16px;
+  font-size: 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  transition: background-color 0.2s;
+}
+
+.new-conversation-button:hover:not(:disabled) {
+  background-color: #0056b3;
+}
+
+.new-conversation-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.new-conversation-button i {
+  font-size: 12px;
+}
+
+.logout-container {
+  margin: 0;
 }
 
 .chat-container {

@@ -15,7 +15,7 @@ const router = useRouter();
 
 const navigateToPractice = () => {
   if (isValidToken()) {
-    router.push({ name: 'Chatbot' });
+    router.push({ name: 'Chat' });
   } else {
     router.push({ name: 'Login' });
   }
